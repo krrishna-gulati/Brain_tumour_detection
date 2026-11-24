@@ -1,6 +1,6 @@
 # Brain Tumour Detection from MRI: CNN vs VGG19
 
-Classifies a brain MRI scan as **no tumour, glioma, meningioma or pituitary tumour**. Two models are compared: a small CNN trained from scratch, and VGG19 pre-trained on ImageNet with its last block fine-tuned on MRI scans. A local website lets you upload a scan and see the prediction.
+Classifies a brain MRI scan as **no tumour, glioma, meningioma or pituitary tumour**. Two models are compared: a small CNN trained from scratch, and VGG19 pre-trained on ImageNet with its last block fine-tuned on MRI scans. A local website lets you upload a scan and see the prediction, with a Grad-CAM heatmap of where VGG19 looked.
 
 > For learning and demonstration only. This is not a medical device and must not be used for diagnosis.
 
@@ -26,6 +26,7 @@ The original Training/Testing split was not usable as it stood. Much of the Test
 | `train_and_infer_cnn.py` | CNN: train, evaluate, predict |
 | `train_and_infer_vgg19.py` | VGG19: train, evaluate, predict |
 | `brain_classifier.py` | Loads the trained models and classifies an image (shared by both apps) |
+| `gradcam.py` | Grad-CAM heatmaps for VGG19 (the CNN's Flatten + Dense design gives unreliable maps) |
 | `web_app.py`, `templates/` | Local website: upload an image in the browser |
 | `predict_app.py` | Desktop app (Tkinter): choose an image and see the prediction |
 | `models/` | Trained models, stored with Git LFS |
@@ -46,7 +47,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-**Website.** Run `python web_app.py`. It loads the models (about 10 seconds) and opens http://127.0.0.1:5000. Drag in an MRI scan to see VGG19's prediction, with the CNN's for comparison. Press Ctrl+C to stop it.
+**Website.** Run `python web_app.py`. It loads the models (about 10 seconds) and opens http://127.0.0.1:5000. Drag in an MRI scan to see VGG19's prediction and a Grad-CAM heatmap of the regions that drove it, with the CNN's prediction for comparison. Press Ctrl+C to stop it.
 
 **Desktop app.** Run `python predict_app.py`.
 

@@ -24,6 +24,7 @@ from PIL import Image
 
 from brain_classifier import BASE_DIR, LOW_CONFIDENCE, MODEL_SPECS, PRETTY_NAMES, Classifier
 from brain_preprocessing import prepare_image
+from gradcam import overlay_heatmap
 
 ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png"}
 PREVIEW_SIZE = 360
@@ -48,19 +49,24 @@ def describe(image_path, display_name):
     """Classify one image file and package everything the page shows."""
     img = Image.open(image_path)
     img.load()
+    prepared = prepare_image(img)
     with classify_lock:
-        results = classifier.classify(image_path)
+        results = classifier.classify_and_explain(image_path)
 
     models = []
     for spec in MODEL_SPECS:
-        probs = results.get(spec["key"])
-        if probs is None:
+        result = results.get(spec["key"])
+        if result is None:
             continue
+        probs, cam = result["probs"], result["cam"]
         best = max(range(len(probs)), key=probs.__getitem__)
         models.append(
             {
                 "key": spec["key"],
+                "name": spec["name"],
                 "title": spec["title"],
+                # Grad-CAM overlay on the cropped scan; None for models without a reliable map
+                "heatmap": preview_data_url(overlay_heatmap(prepared, cam)) if cam is not None else None,
                 "prediction": PRETTY_NAMES.get(classifier.class_names[best]),
                 "confidence": probs[best],
                 "low_confidence": probs[best] < LOW_CONFIDENCE,
@@ -73,7 +79,7 @@ def describe(image_path, display_name):
     return {
         "filename": display_name,
         "original": preview_data_url(img),
-        "prepared": preview_data_url(prepare_image(img)),
+        "prepared": preview_data_url(prepared),
         "models": models,
     }
 

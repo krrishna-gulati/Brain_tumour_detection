@@ -11,9 +11,12 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # hide TensorFlow's info mes
 BASE_DIR = Path(__file__).resolve().parent
 
 # Main model first. Paths are the files written by the training scripts.
+# "heatmap": whether Grad-CAM gives a trustworthy map for this model (see gradcam.py).
 MODEL_SPECS = [
-    {"key": "vgg19", "title": "VGG19 (main model)", "path": BASE_DIR / "models" / "multiclass_vgg19_model.h5"},
-    {"key": "cnn", "title": "CNN (for comparison)", "path": BASE_DIR / "models" / "multiclass_model.h5"},
+    {"key": "vgg19", "name": "VGG19", "title": "VGG19 (main model)", "heatmap": True,
+     "path": BASE_DIR / "models" / "multiclass_vgg19_model.h5"},
+    {"key": "cnn", "name": "CNN", "title": "CNN (for comparison)", "heatmap": False,
+     "path": BASE_DIR / "models" / "multiclass_model.h5"},
 ]
 
 PRETTY_NAMES = {
@@ -33,6 +36,7 @@ class Classifier:
         self.models = {}
         self.class_names = []
         self._preprocess = {}
+        self._gradcam_layers = {}  # model key -> (layers in order, index of last conv layer)
 
     def load(self):
         # Imported here so callers can show a window or message while TensorFlow loads.
@@ -51,11 +55,35 @@ class Classifier:
         if not self.models:
             raise FileNotFoundError("No trained model found in models/. Train VGG19 or the CNN first.")
 
+    def _input(self, key, image_path):
+        height, width = self.models[key].input_shape[1:3]
+        return self._preprocess[key](image_path, target_size=(width, height))
+
     def classify(self, image_path):
         """Return {model key: list of class probabilities} for one image file."""
+        return {
+            key: [float(p) for p in model(self._input(key, image_path), training=False).numpy()[0]]
+            for key, model in self.models.items()
+        }
+
+    def classify_and_explain(self, image_path):
+        """Return {model key: {"probs": [...], "cam": Grad-CAM map, or None}} for one image file.
+
+        A map is made only for models whose spec says "heatmap": True.
+        """
+        import gradcam
+
+        heatmap_keys = {spec["key"] for spec in MODEL_SPECS if spec["heatmap"]}
         results = {}
         for key, model in self.models.items():
-            height, width = model.input_shape[1:3]
-            x = self._preprocess[key](image_path, target_size=(width, height))
-            results[key] = [float(p) for p in model(x, training=False).numpy()[0]]
+            x = self._input(key, image_path)
+            if key in heatmap_keys:
+                if key not in self._gradcam_layers:
+                    layers = gradcam.leaf_layers(model)
+                    self._gradcam_layers[key] = (layers, gradcam.last_conv_index(layers))
+                layers, conv_index = self._gradcam_layers[key]
+                probs, cam = gradcam.predict_with_gradcam(layers, conv_index, x)
+            else:
+                probs, cam = [float(p) for p in model(x, training=False).numpy()[0]], None
+            results[key] = {"probs": probs, "cam": cam}
         return results
