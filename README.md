@@ -10,7 +10,7 @@ Scores on 423 held-out test scans that were never used for training:
 
 | Model | Test accuracy | No tumour | Glioma | Meningioma | Pituitary |
 |---|---|---|---|---|---|
-| CNN (trained from scratch) | 75.9% | 71.1% | 78.2% | 60.0% | 90.4% |
+| CNN (trained from scratch, 30 epochs) | 82.0% | 68.9% | 73.7% | 78.3% | 99.2% |
 | **VGG19 (block 5 fine-tuned)** | **90.8%** | **91.1%** | **90.2%** | **83.3%** | **98.4%** |
 
 The per-class figures are recall: the share of each class's scans the model labelled correctly.
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 **Train and evaluate:**
 
 ```
-python train_and_infer_cnn.py --mode train        # about 21 min on a laptop CPU
+python train_and_infer_cnn.py --mode train --epochs 30 --patience 30   # about 45 min on a laptop CPU
 python train_and_infer_vgg19.py --mode train      # about 1.5 h on a laptop CPU
 python train_and_infer_vgg19.py --mode evaluate   # accuracy, per-class report, confusion matrix
 python train_and_infer_vgg19.py --mode predict --image_path <image file>

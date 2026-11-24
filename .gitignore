@@ -10,6 +10,7 @@ Dataset_prepared/
 
 # Old 5-epoch baseline models and training history: kept locally only
 models/baseline_5_epochs/
+models/backup_*/
 models/*.pkl
 
 # Local editor settings (contain machine-specific paths)
