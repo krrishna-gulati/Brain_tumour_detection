@@ -1,62 +1,71 @@
 """Grad-CAM heatmaps: which regions of a scan pushed a model towards its answer.
 
-Grad-CAM (Selvaraju et al., 2017) takes the last convolution layer's feature maps, weights
+Grad-CAM (Selvaraju et al., 2017) takes the feature maps of a late convolution layer, weights
 each map by how much it raises the predicted class's score (the average gradient), and adds
-them up. The result is a coarse map, e.g. 14x14 for VGG19, that is stretched over the image.
+them up. The result is a coarse map (14x14 for VGG19, 7x7 for ResNet50 and EfficientNetB0)
+that is stretched over the image.
 
-Both models here are plain chains of layers (VGG19's base is a nested model), so the forward
-pass is replayed layer by layer: up to the last conv layer, then the rest under a GradientTape.
+Works for the transfer-learning models, which all have the same shape:
+augmentation layers -> pre-trained base (a nested model) -> pooling -> Dense -> Dropout -> Dense(softmax).
+A sub-model of the base returns both the chosen layer's activations and the base output,
+so this also works for bases with skip connections (ResNet50, EfficientNetB0).
 
-Heatmaps are only shown for VGG19. Our CNN ends in Flatten + Dense, so every position has its
-own weights; its Grad-CAM maps light up the black background, and the HiResCAM variant gives
-only a few isolated pixels. Neither is a trustworthy picture of where the CNN looked.
+The CNN gets no heatmap: it ends in Flatten + Dense, so every position has its own weights.
+Its Grad-CAM maps lit up the black background and the HiResCAM variant gave only a few
+isolated pixels; neither is a trustworthy picture of where the CNN looked.
 """
 import numpy as np
 import tensorflow as tf
 from PIL import Image
 
 
-def leaf_layers(model):
-    """All layers in order, with nested models (VGG19's base) expanded and input layers dropped."""
-    out = []
-    for layer in model.layers:
-        if isinstance(layer, tf.keras.layers.InputLayer):
-            continue
-        if isinstance(layer, tf.keras.Model):
-            out.extend(leaf_layers(layer))
-        else:
-            out.append(layer)
-    return out
-
-
-def last_conv_index(layers):
-    last = layers[-1]
+def gradcam_parts(model, layer_name):
+    """Split a model into (layers before the base, base sub-model, head layers after the base)."""
+    base_index = next(i for i, layer in enumerate(model.layers) if isinstance(layer, tf.keras.Model))
+    base = model.layers[base_index]
+    before = [l for l in model.layers[:base_index] if not isinstance(l, tf.keras.layers.InputLayer)]
+    features = tf.keras.Model(base.inputs, [base.get_layer(layer_name).output, base.output])
+    head = model.layers[base_index + 1:]
+    last = head[-1]
     if not (isinstance(last, tf.keras.layers.Dense) and getattr(last.activation, "__name__", "") == "softmax"):
         raise ValueError("Grad-CAM here expects the model to end in a Dense layer with softmax.")
-    return max(i for i, layer in enumerate(layers) if isinstance(layer, tf.keras.layers.Conv2D))
+    return before, features, head
 
 
-def predict_with_gradcam(layers, conv_index, x, class_index=None):
+def make_gradcam_function(parts):
+    """Compile the Grad-CAM computation into a TensorFlow graph once per model.
+
+    Run step by step in Python, ResNet50 and EfficientNetB0 (hundreds of layers) took
+    seconds per scan; as a compiled graph it is a fraction of a second.
+    """
+    before, features, head = parts
+    *middle, last = head
+
+    @tf.function(reduce_retracing=True)
+    def run(x):
+        a = x
+        for layer in before:
+            a = layer(a, training=False)  # augmentation layers: off when not training
+        with tf.GradientTape() as tape:
+            conv, h = features(a, training=False)
+            for layer in middle:
+                h = layer(h, training=False)
+            # Use the class score before softmax, as in the Grad-CAM paper: a probability
+            # near 100% barely moves, so its gradients can vanish for very confident predictions.
+            logits = tf.matmul(h, last.kernel) + last.bias
+            score = tf.gather(logits[0], tf.argmax(logits[0]))
+        grads = tape.gradient(score, conv)[0]              # (H, W, channels)
+        weights = tf.reduce_mean(grads, axis=(0, 1))       # importance of each feature map
+        cam = tf.nn.relu(tf.reduce_sum(conv[0] * weights, axis=-1))
+        return tf.nn.softmax(logits)[0], cam
+
+    return run
+
+
+def predict_with_gradcam(gradcam_function, x):
     """Return (class probabilities, Grad-CAM map in 0..1) for one preprocessed image batch x."""
-    a = tf.convert_to_tensor(x)
-    for layer in layers[: conv_index + 1]:
-        a = layer(a, training=False)  # training=False also keeps the augmentation layers off
-    *middle, last = layers[conv_index + 1:]
-    with tf.GradientTape() as tape:
-        tape.watch(a)
-        h = a
-        for layer in middle:
-            h = layer(h, training=False)
-        # Use the class score before softmax, as in the Grad-CAM paper: a softmax probability
-        # near 100% barely moves, so its gradients can vanish for very confident predictions.
-        logits = tf.matmul(h, last.kernel) + last.bias
-        probs = tf.nn.softmax(logits)[0]
-        if class_index is None:
-            class_index = int(tf.argmax(probs))
-        score = logits[0, class_index]
-    grads = tape.gradient(score, a)[0]                 # (H, W, channels)
-    weights = tf.reduce_mean(grads, axis=(0, 1))       # importance of each feature map
-    cam = tf.nn.relu(tf.reduce_sum(a[0] * weights, axis=-1)).numpy()
+    probs, cam = gradcam_function(tf.convert_to_tensor(x, dtype=tf.float32))
+    cam = cam.numpy()
     peak = cam.max()
     cam = cam / peak if peak > 0 else cam
     return probs.numpy().astype(float).tolist(), cam

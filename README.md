@@ -1,6 +1,6 @@
-# Brain Tumour Detection from MRI: CNN vs VGG19
+# Brain Tumour Detection from MRI: CNN, VGG19, ResNet50, EfficientNetB0 and their combination
 
-Classifies a brain MRI scan as **no tumour, glioma, meningioma or pituitary tumour**. Two models are compared: a small CNN trained from scratch, and VGG19 pre-trained on ImageNet with its last block fine-tuned on MRI scans. A local website lets you upload a scan and see the prediction, with a Grad-CAM heatmap of where VGG19 looked.
+Classifies a brain MRI scan as **no tumour, glioma, meningioma or pituitary tumour**. Four models are compared: a small CNN trained from scratch, and three ImageNet networks (VGG19, ResNet50, EfficientNetB0) whose last block is fine-tuned on MRI scans. Averaging the four models' predictions gives the best result. A local website lets you upload a scan and see the combined answer, each model's answer, and Grad-CAM heatmaps of where the models looked.
 
 > For learning and demonstration only. This is not a medical device and must not be used for diagnosis.
 
@@ -8,12 +8,15 @@ Classifies a brain MRI scan as **no tumour, glioma, meningioma or pituitary tumo
 
 Scores on 423 held-out test scans that were never used for training:
 
-| Model | Test accuracy | No tumour | Glioma | Meningioma | Pituitary |
-|---|---|---|---|---|---|
-| CNN (trained from scratch, 30 epochs) | 82.0% | 68.9% | 73.7% | 78.3% | 99.2% |
-| **VGG19 (block 5 fine-tuned)** | **90.8%** | **91.1%** | **90.2%** | **83.3%** | **98.4%** |
+| Model | Test accuracy | No tumour | Glioma | Meningioma | Pituitary | Model size |
+|---|---|---|---|---|---|---|
+| CNN (trained from scratch, 30 epochs) | 82.0% | 68.9% | 73.7% | 78.3% | 99.2% | 148 MB |
+| EfficientNetB0 (fine-tuned) | 88.2% | 77.8% | 88.7% | 80.0% | 99.2% | 29 MB |
+| ResNet50 (fine-tuned) | 90.1% | 66.7% | 92.5% | 86.7% | 99.2% | 211 MB |
+| VGG19 (fine-tuned) | 90.8% | 91.1% | 90.2% | 83.3% | 98.4% | 150 MB |
+| **Combined (average of all four)** | **93.6%** | 86.7% | **94.0%** | **90.0%** | 99.2% | |
 
-The per-class figures are recall: the share of each class's scans the model labelled correctly.
+The per-class figures are recall: the share of each class's scans the model labelled correctly. The combined model averages the four models' class probabilities with equal weights. The weights were fixed in advance and not tuned on the test set.
 
 The original Training/Testing split was not usable as it stood. Much of the Testing folder was copies of Training images, and the two folders came from different-looking sources. `prepare_data.py` therefore merges them, crops every scan to the brain, normalises brightness, removes exact and near-duplicates, and makes a fresh stratified 70/15/15 split.
 
@@ -25,11 +28,13 @@ The original Training/Testing split was not usable as it stood. Much of the Test
 | `brain_preprocessing.py` | Crop to the brain and normalise brightness (used for training and prediction) |
 | `train_and_infer_cnn.py` | CNN: train, evaluate, predict |
 | `train_and_infer_vgg19.py` | VGG19: train, evaluate, predict |
-| `brain_classifier.py` | Loads the trained models and classifies an image (shared by both apps) |
-| `gradcam.py` | Grad-CAM heatmaps for VGG19 (the CNN's Flatten + Dense design gives unreliable maps) |
+| `train_and_infer_transfer.py` | ResNet50 and EfficientNetB0 (`--arch`): train, evaluate, predict |
+| `evaluate_ensemble.py` | Scores every model and the combined model on the test (or validation) split |
+| `brain_classifier.py` | Loads the trained models, classifies an image, combines the answers |
+| `gradcam.py` | Grad-CAM heatmaps for the three pre-trained networks (the CNN's Flatten + Dense design gives unreliable maps) |
 | `web_app.py`, `templates/` | Local website: upload an image in the browser |
-| `predict_app.py` | Desktop app (Tkinter): choose an image and see the prediction |
-| `models/` | Trained models, stored with Git LFS |
+| `predict_app.py` | Desktop app (Tkinter) with VGG19 and the CNN |
+| `models/` | Trained models, stored with Git LFS (`.h5` for VGG19 and the CNN, `.keras` for ResNet50 and EfficientNetB0) |
 | `Dataset/` | Original images: `Training/` and `Testing/`, one folder per class |
 
 ## Setup
@@ -47,18 +52,21 @@ pip install -r requirements.txt
 
 ## Usage
 
-**Website.** Run `python web_app.py`. It loads the models (about 10 seconds) and opens http://127.0.0.1:5000. Drag in an MRI scan to see VGG19's prediction and a Grad-CAM heatmap of the regions that drove it, with the CNN's prediction for comparison. Press Ctrl+C to stop it.
+**Website.** Run `python web_app.py`. It loads and prepares the four models (about 40 seconds) and opens http://127.0.0.1:5000. Drag in an MRI scan to see the combined final answer, how many models agree, and each model's own answer with a Grad-CAM heatmap. Each scan takes about 2 seconds. Press Ctrl+C to stop it.
 
 **Desktop app.** Run `python predict_app.py`.
 
 **Rebuild the data split.** Run `python prepare_data.py` once. It creates `Dataset_prepared/`, which is needed for training, evaluation and the website's "Try a random test scan" button. The split uses a fixed seed, so it matches the one the models were trained on.
 
-**Train and evaluate:**
+**Train and evaluate** (times on a laptop CPU):
 
 ```
-python train_and_infer_cnn.py --mode train --epochs 30 --patience 30   # about 45 min on a laptop CPU
-python train_and_infer_vgg19.py --mode train      # about 1.5 h on a laptop CPU
-python train_and_infer_vgg19.py --mode evaluate   # accuracy, per-class report, confusion matrix
+python train_and_infer_cnn.py --mode train --epochs 30 --patience 30   # about 45 min
+python train_and_infer_vgg19.py --mode train                           # about 1.5 h
+python train_and_infer_transfer.py --arch resnet50 --mode train        # about 1 h
+python train_and_infer_transfer.py --arch efficientnetb0 --mode train  # about 20 min
+python train_and_infer_vgg19.py --mode evaluate      # accuracy, per-class report, confusion matrix
+python evaluate_ensemble.py                          # all models and the combined model
 python train_and_infer_vgg19.py --mode predict --image_path <image file>
 ```
 

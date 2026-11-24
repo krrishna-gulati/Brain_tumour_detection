@@ -58,7 +58,7 @@ class ResultPanel(ttk.LabelFrame):
 class App:
     def __init__(self, root):
         self.root = root
-        self.classifier = Classifier()
+        self.classifier = Classifier(keys=("vgg19", "cnn"))  # the website shows all models
         self.events = queue.Queue()
         self.panels = {}
         self._photos = []  # keep references, or Tk drops the images
