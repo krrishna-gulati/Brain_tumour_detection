@@ -16,21 +16,22 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # hide TensorFlow's info mes
 BASE_DIR = Path(__file__).resolve().parent
 
 # Display order on the website. "gradcam_layer": the layer Grad-CAM reads (None = no reliable
-# heatmap, see gradcam.py). "test_accuracy": measured on the 423 test scans with
-# evaluate_ensemble.py; update it if a model is retrained.
+# heatmap, see gradcam.py). "test_accuracy": measured with evaluate_ensemble.py on the 402 test
+# scans of the patient-based split (30 patients never seen in training); update it if a model
+# is retrained.
 MODEL_SPECS = [
     {"key": "vgg19", "name": "VGG19", "title": "VGG19 (main model)",
      "path": BASE_DIR / "models" / "multiclass_vgg19_model.h5",
-     "gradcam_layer": "block5_conv4", "test_accuracy": 0.908},
+     "gradcam_layer": "block5_conv4", "test_accuracy": 0.910},
     {"key": "resnet50", "name": "ResNet50", "title": "ResNet50",
      "path": BASE_DIR / "models" / "multiclass_resnet50_model.keras",
-     "gradcam_layer": "conv5_block3_out", "test_accuracy": 0.901},
+     "gradcam_layer": "conv5_block3_out", "test_accuracy": 0.900},
     {"key": "efficientnetb0", "name": "EfficientNetB0", "title": "EfficientNetB0",
      "path": BASE_DIR / "models" / "multiclass_efficientnetb0_model.keras",
-     "gradcam_layer": "top_activation", "test_accuracy": 0.882},
+     "gradcam_layer": "top_activation", "test_accuracy": 0.871},
     {"key": "cnn", "name": "CNN", "title": "CNN (for comparison)",
      "path": BASE_DIR / "models" / "multiclass_model.h5",
-     "gradcam_layer": None, "test_accuracy": 0.820},
+     "gradcam_layer": None, "test_accuracy": 0.774},
 ]
 SPECS_BY_KEY = {spec["key"]: spec for spec in MODEL_SPECS}
 
@@ -44,8 +45,8 @@ PRETTY_NAMES = {
 LOW_CONFIDENCE = 0.60  # below this, the apps warn that the model is unsure
 
 
-# Combined model with all four models above, measured with evaluate_ensemble.py (396 of 423)
-COMBINED_TEST_ACCURACY = 0.936
+# Combined model with all four models above, measured with evaluate_ensemble.py (368 of 402)
+COMBINED_TEST_ACCURACY = 0.915
 
 
 def combine(prob_lists):
